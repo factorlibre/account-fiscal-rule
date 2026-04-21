@@ -4,15 +4,6 @@ from odoo import api, fields, models
 class SaleOrder(models.Model):
     _inherit = "sale.order"
 
-    @api.depends(
-        "order_line.tax_id", "order_line.price_unit", "amount_total", "amount_untaxed"
-    )
-    def _compute_tax_totals(self):
-        # Make the Sales Order data available to the AccountTax.compute_all() method
-        # This is needed to take in consideration the additional Avatax fields
-        enriched_self = self.with_context(for_avatax_object=self)
-        return super(SaleOrder, enriched_self)._compute_tax_totals()
-
     @api.model
     @api.depends("company_id", "partner_id", "partner_invoice_id", "state")
     def _compute_hide_exemption(self):
@@ -89,24 +80,6 @@ class SaleOrder(models.Model):
         """
         for order in self:
             order.tax_amount = 0
-
-    @api.depends("order_line.price_total", "order_line.product_uom_qty", "tax_amount")
-    def _compute_amounts(self):
-        """
-        Compute fields amount_untaxed, amount_tax, amount_total
-        Their computation needs to be overriden,
-        to use the amounts returned by Avatax service, stored in specific fields.
-        """
-        res = super()._compute_amounts()
-        for order in self:
-            if order.tax_amount:
-                order.update(
-                    {
-                        "amount_tax": order.tax_amount,
-                        "amount_total": order.amount_untaxed + order.tax_amount,
-                    }
-                )
-        return res
 
     @api.depends("tax_on_shipping_address", "partner_id", "partner_shipping_id")
     def _compute_tax_address_id(self):
@@ -368,18 +341,3 @@ class SaleOrderLine(models.Model):
         for line in self:
             line.tax_amt = 0
             line.order_id.tax_amount = 0
-
-    @api.depends("product_uom_qty", "discount", "price_unit", "tax_id", "tax_amt")
-    def _compute_amount(self):
-        """
-        If we have a Avatax computed amount, use it instead of the Odoo computed one
-        """
-        res = super()._compute_amount()
-        for line in self:
-            if line.tax_amt:  # Has Avatax computed amount
-                vals = {
-                    "price_tax": line.tax_amt,
-                    "price_total": line.price_subtotal + line.tax_amt,
-                }
-                line.update(vals)
-        return res
